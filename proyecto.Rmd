@@ -1,0 +1,617 @@
+---
+title: "PROYECTO N°1: SINIESTROS EN SEGUROS"
+author: "Santana Guerra Manuel Enrique"
+date: "2024-12-16"
+output: html_document
+---
+# PROCEDIMIENTO DE IMPORTAR LA BASE DE DATOS
+Se importa la base de datos y se activa las librerias que se requerirán en el presente trabajo.Así mismo, se le pide al software que se visualize la base de datos y que nos muestre las características de las variables.
+
+```{r importar_datos, echo=TRUE}
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(Hmisc)
+library(e1071)
+library(corrplot)
+library(ParamHelpers)
+library(mlr)
+library(VIM)
+library(statsr)
+
+set.seed(567)
+setwd("D:/EconomymanuR/proyecto")
+df <- read.csv("df.csv", 
+               header = TRUE, 
+               comment.char = "#",
+               fileEncoding = "Latin1")
+View(df)
+str(df)
+```
+## Características de la base de datos :
+Se le ordena al software que nos muestre la cantidad de variables y de observaciones que se tienen
+Nota: Algunas funciones importantes son:
+getwd(): Usar para saber el directorio en el que esta trabajando R.
+setwd(): Usar para fijar el directorio de trabajo
+
+```{r}
+colnames(df)
+nrow(df)
+ncol(df)
+dim(df)
+```
+#  TRANSFORMACIÓN DE LAS VARIABLES A SU NATURALEZA
+Se convierte a las variables según lo que esta en el diccionario.
+
+```{r}
+df$Nivel_Ingresos <- factor(df$Nivel_Ingresos,levels = c(0, 1, 2, 3, 4, 5),
+ordered = TRUE)
+class(df$Nivel_Ingresos)
+```
+# TRANSFORMAR LA VARIABLE MOROSIDAD 
+La variable morosidad es de tipo cualitativa ordinal con 7 categorias es importante trasformarla a objeto de tipo factor.
+
+```{r}
+
+df$Puntaje_Morosidad1 <- factor(df$Puntaje_Morosidad1, 
+                          levels = c(0, 1, 2, 3, 4, 5, 6), 
+                          labels = c("Sin deuda", "1-29 días", "30-59 días",                                   "60-89 días", "90-119 días","120-149días",
+                               "150-179 días"), ordered = TRUE)
+class(df$Puntaje_Morosidad1)
+table(df$Puntaje_Morosidad1)
+```
+# CONVIRTIENDO A VARIABLE MOROSIDAD2,3,4,5,Y 6.
+El diccionario del proyecto sostiene que la morosidad tiene 7 valores desde 0 a 6, pero morosidad 2,3,4,5, y 6 tiene 8 categorias y se le incluye el valor 7 como máxima, dado que no se considera en el diccionario de variables se le toma como valor atípico o faltante que luego se imputará cn la moda.Por lo tanto, se el asignará sus valores correspondientes.
+
+```{r}
+
+variables_morosidad <- c("Puntaje_Morosidad2", "Puntaje_Morosidad3", 
+                         "Puntaje_Morosidad4", "Puntaje_Morosidad5", 
+                         "Puntaje_Morosidad6")
+
+# Definir los niveles válidos y las etiquetas
+niveles_validos <- 0:6
+etiquetas <- c("Sin deuda", "1-29 días", "30-59 días", 
+               "60-89 días", "90-119 días", "120-149 días", "150-179 días")
+
+# Bucle para transformar las variables
+for (var in variables_morosidad) {
+  # Reemplazar valores atípicos (7) por NA
+  df[[var]] <- ifelse(df[[var]] %in% niveles_validos, df[[var]], NA)
+  
+  # Convertir a factor ordenado con niveles y etiquetas
+  df[[var]] <- factor(df[[var]], levels = niveles_validos, labels = etiquetas, ordered = TRUE)
+}
+
+# Verificar si las variables se transformaron correctamente
+lapply(df[variables_morosidad], summary)
+```
+
+# CONVIERTIENDO LA VARIABLE SINIESTRO A FACTOR
+
+Dada la lectura del diccionario de variables,se procederá a convertir la variable Siniestro a su correspondiente naturaleza o tipo que es cualitativa de tipo nominal, es decir a objeto factor sin ordenamiento de sus categorias.
+
+```{r}
+
+df$Estado_Siniestro <- factor(df$Estado_Siniestro, 
+                               levels = unique(df$Estado_Siniestro))
+class(df$Estado_Siniestro)
+```
+# GRÁFICOS Y TABLAS PRELIMINARES
+
+```{r}
+table(df$Estado_Siniestro)
+table(df$Puntaje_Morosidad1)
+table(df$Nivel_Ingresos)
+lapply(df[variables_morosidad], summary)
+
+```
+# GRÁFICO AÑOS DE ANTIGUEDAD
+
+```{r}
+grafico1 <- ggplot(df, aes(x = Antigüedad_Maxima)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "blue", color = "black",   alpha = 0.5) + geom_density(color = "green", size = 1) +
+  labs(title = "Meses de Antigüedad",
+       x = "Antigüedad Máxima",y = "Densidad") +
+  theme_minimal()
+
+grafico2 <- ggplot(df, aes(x = Puntaje_Morosidad1, y = Antigüedad_Maxima)) +
+  geom_boxplot(aes(fill = Puntaje_Morosidad1), color = "black") +  
+  scale_fill_manual(values = c("lightblue", "lightgreen", "lightpink", "lightyellow", "lightgray", "lightcoral", "lightsalmon")) +
+  labs(title = "Boxplot:Antigüedad y Morosidad1",
+       x = "Puntaje de Morosidad 1",
+       y = "Antigüedad Máxima") + 
+  theme_minimal()  # Estilo minimalista
+# Combinar los gráficos en una sola ventana
+graficos_combinados <- grid.arrange(
+  grafico1,    # Primer gráfico
+  grafico2,    # Segundo gráfico
+  ncol = 2,    # Número de columnas
+  top = "HISTOGRAMA Y BOXPLOT" )
+
+graficos_combinados
+
+```
+En los gráficos anteriores se observa que la distribución de la variable antiguedad máxima tiene sesgo a la derecha y no tiene distribución normal, esto se comprobará luego con la prueba de normalidad correspondiente.
+Así mismo se observa que dicha variable relacionada con la variable nivel de ingresos y su correspondiente gráfico de bigotes, tiene valores perdidos en cada categoría lo cual  podria ser normal que suceda esto en cada grupo, sin embargo se tratará los valores atípicos de dicha variable de modo general y en modo de categoria o sub grupo para evitar sobre ajuste.
+
+```{r}
+
+grafico3 <- ggplot(df, aes(x = Estado_Siniestro, y = Antigüedad_Maxima)) +
+  geom_boxplot(aes(fill = Estado_Siniestro), color = "black") +  
+  scale_fill_manual(values = c("lightblue", "lightgreen", "lightpink", "gray")) +  # 4 colores (incluyendo NA)
+  labs(title = "Antigüedad:Estado de Siniestro",
+       x = "Estado de Siniestro",
+       y = "Antigüedad Máxima") +  # Títulos
+  theme_minimal()  # Estilo minimalista
+
+grafico4 <- ggplot(df, aes(x = factor(Nivel_Ingresos), y = Antigüedad_Maxima)) +geom_boxplot(aes(fill = factor(Nivel_Ingresos)), color = "black") + 
+  scale_fill_brewer(palette = "Set3") +  
+  labs(title = "Antigüedad: Nivel de Ingresos",
+       x = "Nivel de Ingresos",
+       y = "Antigüedad Máxima") +  theme_minimal()  
+
+graficos_combinados2 <- grid.arrange(grafico3, grafico4, ncol = 2,
+                            top = "Título General: Comparación de Gráficas")
+graficos_combinados2
+
+```
+
+# VALORES ATÍPICOS DE LA VARIABLE AÑOS DE ANTIGUEDAD
+Años de antiguedad tiene valores atípicos que se tratarán en función a los valores cercanos de los límites.
+```{r}
+# Boxplot para detectar valores atípicos
+ggplot(df, aes(y = Antigüedad_Maxima)) + 
+  geom_boxplot(fill = "lightgreen") + 
+  theme_minimal() +
+  ggtitle("Boxplot de Antiguedad_Maxima")
+```
+
+```{r}
+# Calcular los límites para detectar valores atípicos
+iqr_antiguedad <- IQR(df$Antigüedad_Maxima, na.rm = TRUE)  
+q1 <- quantile(df$Antigüedad_Maxima, 0.25, na.rm = TRUE)   
+q3 <- quantile(df$Antigüedad_Maxima, 0.75, na.rm = TRUE)   
+limite_inferior <- q1 - 1.5 * iqr_antiguedad              
+limite_superior <- q3 + 1.5 * iqr_antiguedad              
+
+# Imputar valores atípicos
+df$Antigüedad_Maxima <- ifelse(df$Antigüedad_Maxima < limite_inferior, 
+                                limite_inferior, 
+                                ifelse(df$Antigüedad_Maxima > limite_superior, 
+                                       limite_superior, 
+                                       df$Antigüedad_Maxima))
+ggplot(df, aes(y = Antigüedad_Maxima)) + 
+  geom_boxplot(fill = "lightgreen") + 
+  theme_minimal() +
+  ggtitle("Boxplot de Antiguedad_Maxima")
+
+```
+
+# VALORES ATIPICOS DE SALDO PENDIENTE FUERA DEL SEGURO Y EN EL SEGURO
+
+```{r}
+# Crear boxplot para Saldo_Pendiente_Seg
+boxplot_saldo_seg <- ggplot(df, aes(y = Saldo_Pendiente_Seg)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  labs(title = "DEUDA EN EL SEGURO",
+       y = "Saldo Pendiente en Seguros",
+       x = "") +
+  theme_minimal()
+
+# Crear boxplot para Saldo_Pendiente
+boxplot_saldo <- ggplot(df, aes(y = Saldo_Pendiente)) +
+  geom_boxplot(fill = "lightgreen", color = "darkgreen") +
+  labs(title = "DEUDAS EN OTROS LUGARES",
+       y = "Saldo Pendiente General",
+       x = "") +
+  theme_minimal()
+
+# Mostrar ambos gráficos juntos
+grid.arrange(boxplot_saldo_seg, boxplot_saldo, ncol = 2)
+```
+# CALCULANDO LA CANTIDAD DE VALORES ATÍPICOS SIN CONTABILIZAR LOS NA EN LOS SALDOS PENDIENTES
+
+```{r}
+
+iqr_saldo_seg <- IQR(df$Saldo_Pendiente_Seg, na.rm = TRUE)
+q1_saldo_seg <- quantile(df$Saldo_Pendiente_Seg, 0.25, na.rm = TRUE)
+q3_saldo_seg <- quantile(df$Saldo_Pendiente_Seg, 0.75, na.rm = TRUE)
+limite_inf_saldo_seg <- q1_saldo_seg - 1.5 * iqr_saldo_seg
+limite_sup_saldo_seg <- q3_saldo_seg + 1.5 * iqr_saldo_seg
+valores_atipicos_saldo_seg<-df$Saldo_Pendiente_Seg[df$Saldo_Pendiente_Seg < limite_inf_saldo_seg | df$Saldo_Pendiente_Seg > limite_sup_saldo_seg]
+
+iqr_saldo <- IQR(df$Saldo_Pendiente, na.rm = TRUE)
+q1_saldo <- quantile(df$Saldo_Pendiente, 0.25, na.rm = TRUE)
+q3_saldo <- quantile(df$Saldo_Pendiente, 0.75, na.rm = TRUE)
+limite_inf_saldo <- q1_saldo - 1.5 * iqr_saldo
+limite_sup_saldo <- q3_saldo + 1.5 * iqr_saldo
+valores_atipicos_saldo <- df$Saldo_Pendiente[df$Saldo_Pendiente < limite_inf_saldo | df$Saldo_Pendiente > limite_sup_saldo]
+
+# Contar valores atípicos
+cat("Cantidad de valores atípicos en Saldo_Pendiente_Seg:", length(valores_atipicos_saldo_seg), "\n")
+cat("Cantidad de valores atípicos en Saldo_Pendiente:", length(valores_atipicos_saldo), "\n")
+```
+# IMPUTANDO LOS VALORES ATÍPICO DE SALDO PENDIENTE DEL SEGURO
+Se tiene dos imputaciones de valores atípicos, una de ellas es para las observaciones que tienen un saldo distinto a cero y que tienen un puntaje de morosidad igual a cero, es decir, si no deben y no son morosos, no deberian de tener una deuda o saldo pendiente diferente de cero.No se imputa por la media dado que la mediana antes de la imputación es cero y luego todo se volvería cero,tampoco por la media por se sensible a los extremos, dada la data de una aseguradora y que es posible la existencia de deuda elevevada de personas con tasas de morosidad en función a varias cuotas o meses,se procede a reemeplazar con cero aquellos que no son morosos y que aparecen con saldos pendiente elevados, lo cual no es lógico.
+Se considerará como un mínimo el pago de una poliza de seguro por 300 nuevos soles como valor minimo , en func ión a ello se procede a imputar.
+
+Hay que  resaltar que se tienen valores NA en la observaciones de tasa de morosidad,motivo por el cual ahy que imputar por su moda, este proccedimeinto será primero para luego evitar hacer imputaciones que deformen los datos.
+
+
+```{r}
+# imputación de los valores NA.
+# Función para calcular el modo
+Mode <- function(x) {
+  uniq_x <- unique(x)
+  uniq_x[which.max(tabulate(match(x, uniq_x)))]
+}
+
+# Imputar los valores NA con la moda en las seis variables de morosidad
+df <- df %>%
+  mutate(
+    Puntaje_Morosidad1 = if_else(is.na(Puntaje_Morosidad1), Mode(na.omit(Puntaje_Morosidad1)), Puntaje_Morosidad1),
+    Puntaje_Morosidad2 = if_else(is.na(Puntaje_Morosidad2), Mode(na.omit(Puntaje_Morosidad2)), Puntaje_Morosidad2),
+    Puntaje_Morosidad3 = if_else(is.na(Puntaje_Morosidad3), Mode(na.omit(Puntaje_Morosidad3)), Puntaje_Morosidad3),
+    Puntaje_Morosidad4 = if_else(is.na(Puntaje_Morosidad4), Mode(na.omit(Puntaje_Morosidad4)), Puntaje_Morosidad4),
+    Puntaje_Morosidad5 = if_else(is.na(Puntaje_Morosidad5), Mode(na.omit(Puntaje_Morosidad5)), Puntaje_Morosidad5),
+    Puntaje_Morosidad6 = if_else(is.na(Puntaje_Morosidad6), Mode(na.omit(Puntaje_Morosidad6)), Puntaje_Morosidad6)
+  )
+
+
+# Imputación uno: Si el puntaje de morosidad es "Sin deuda" y no hay NA, reemplaza por 0
+df <- df %>%
+  mutate(Saldo_Pendiente_Seg = if_else(
+    !is.na(Puntaje_Morosidad1) & Puntaje_Morosidad1 == "Sin deuda" & 
+    !is.na(Puntaje_Morosidad2) & Puntaje_Morosidad2 == "Sin deuda" & 
+    !is.na(Puntaje_Morosidad3) & Puntaje_Morosidad3 == "Sin deuda" & 
+    !is.na(Puntaje_Morosidad4) & Puntaje_Morosidad4 == "Sin deuda" & 
+    !is.na(Puntaje_Morosidad5) & Puntaje_Morosidad5 == "Sin deuda" & 
+    !is.na(Puntaje_Morosidad6) & Puntaje_Morosidad6 == "Sin deuda",
+    0,  # Si todas las variables de morosidad son "Sin deuda" y no hay NA, asignar 0
+    Saldo_Pendiente_Seg # Si no, conservar el valor original
+  ))
+
+# Imputación dos: Si alguna de las variables de morosidad no es "Sin deuda" y no es NA, asigna 150
+df <- df %>%
+  mutate(Saldo_Pendiente_Seg = if_else(
+    !is.na(Puntaje_Morosidad1) & Puntaje_Morosidad1 != "Sin deuda" |
+    !is.na(Puntaje_Morosidad2) & Puntaje_Morosidad2 != "Sin deuda" |
+    !is.na(Puntaje_Morosidad3) & Puntaje_Morosidad3 != "Sin deuda" |
+    !is.na(Puntaje_Morosidad4) & Puntaje_Morosidad4 != "Sin deuda" |
+    !is.na(Puntaje_Morosidad5) & Puntaje_Morosidad5 != "Sin deuda" |
+    !is.na(Puntaje_Morosidad6) & Puntaje_Morosidad6 != "Sin deuda",
+    300,  # Si alguna variable de morosidad no es "Sin deuda" y no es NA, asignar 150
+    Saldo_Pendiente_Seg # Si no, conservar el valor original
+  ))
+
+# Verificar los resultados
+summary(df$Saldo_Pendiente_Seg)
+
+```
+# IMPUTANDO LOS VALORES ATÍPICO DE SALDO PENDIENTE DEL SEGURO
+
+```{r}
+# Cálculo de cuantiles
+q1 <- quantile(df$Saldo_Pendiente, 0.25, na.rm = TRUE) # Primer cuartil
+q3 <- quantile(df$Saldo_Pendiente, 0.75, na.rm = TRUE) # Tercer cuartil
+iqr <- q3 - q1                                        # Rango intercuartil
+
+# Definir límites para outliers
+limite_inf <- q1 - 1.5 * iqr
+limite_sup <- q3 + 1.5 * iqr
+
+# Ver límites
+cat("Límite inferior:", limite_inf, "\n")
+cat("Límite superior:", limite_sup, "\n")
+
+# Imputar valores NA y corregir atípicos
+df <- df %>% mutate(Saldo_Pendiente = case_when(is.na(Saldo_Pendiente) ~        median(Saldo_Pendiente, na.rm = TRUE), # Imputar NA 
+    Saldo_Pendiente < limite_inf ~ limite_inf,   # Ajustar outliers bajos
+    Saldo_Pendiente > limite_sup ~ limite_sup,   # Ajustar outliers altos
+    TRUE ~ Saldo_Pendiente))  # Mantener los valores normales
+
+# Verificar el resultado
+summary(df$Saldo_Pendiente)
+
+```
+# GRAFICANDO
+
+```{r}
+# Crear boxplot para Saldo_Pendiente_Seg
+boxplot_saldo_seg <- ggplot(df, aes(y = Saldo_Pendiente_Seg)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  labs(title = "Boxplot de Saldo Pendiente en Seguros",
+       y = "Saldo Pendiente en Seguros",
+       x = "") +
+  theme_minimal()
+
+# Crear boxplot para Saldo_Pendiente
+boxplot_saldo <- ggplot(df, aes(y = Saldo_Pendiente)) +
+  geom_boxplot(fill = "lightgreen", color = "darkgreen") +
+  labs(title = "Boxplot de Saldo Pendiente General",
+       y = "Saldo Pendiente General",
+       x = "") +
+  theme_minimal()
+
+# Mostrar ambos gráficos juntos
+grid.arrange(boxplot_saldo_seg, boxplot_saldo, ncol = 2)
+
+```
+# VALORES ATÍPICOS EN CANTIDAD DE SINIESTROS
+Se realizará el gráfico de box plot y el método de rango intercuartil para determinar los valores atípicos para luego imputarlos.
+
+```{r}
+
+# Lista de variables
+siniestros <- c("Siniestros1", "Siniestros2", "Siniestros3", "Siniestros4", "Siniestros5", "Siniestros6")
+# Crear una lista para almacenar los gráficos
+graficos <- list()
+colores <- c("red", "blue", "green", "purple", "orange", "brown")
+
+# Generar los gráficos de bigotes
+for (i in seq_along(siniestros)) {
+  graficos[[i]] <- ggplot(df, aes_string(y = siniestros[i])) +
+    geom_boxplot(fill = colores[i], color = "black", outlier.color =     "black", outlier.size = 1.5) +
+    labs(title = paste("Boxplot de", siniestros[i]), y = siniestros[i]) +
+    theme_minimal()}
+
+# Combinar los gráficos en un solo objeto usando gridExtra
+grafico_combinado <- grid.arrange(grobs = graficos, ncol = 2)
+
+```
+# TRATAMIENTO DE LOS VALORES ATÍPICOS DE A VARIABLE SINIESTROS
+
+Ya que se trata de variables numéricas, es crucial decidir cómo imputar los valores atípicos en el contexto de una aseguradora. En este caso se va a tratar los valores atípicos mediante su reemplazo con la mediana de cada variable, ya que la mediana es más robusta frente a los valores extremos.
+Es normal que muchos clientes tengan siniestro cero, ahora el numero de siniestros máximos depende de muchos aso que no tenemos información suficiente, supongamos que los contartos son de 10 años y que por año como máximo se tienen 3 siniestro de distintos tipos ppor lo cual, debemos imputar bajo un valor fijo maximo posible todos los valores atipico demasiado elevados y muy superiores a 30 en cada caso de siniestro.
+No se imputa por los limites, i por la media, moda dado que eso valores son ceros, o cual nno seria represntativo.
+
+
+```{r}
+# Reemplazar valores mayores a 30
+df <- df %>%
+  mutate(Siniestros1 = ifelse(Siniestros1 > 30, 30, Siniestros1),
+         Siniestros2 = ifelse(Siniestros2 > 30, 30, Siniestros2),
+         Siniestros3 = ifelse(Siniestros3 > 30, 30, Siniestros3),
+         Siniestros4 = ifelse(Siniestros4 > 30, 30, Siniestros4),
+         Siniestros5 = ifelse(Siniestros5 > 30, 30, Siniestros5),
+         Siniestros6 = ifelse(Siniestros5 > 30, 30, Siniestros6))
+
+```
+# BOX PLOT PARA VER VALORES ATÍPICOS DE LAS VARIABLES SINIESTROS
+Los gráfico de bigotes suguieren que aún hay valores atípicos sin embargo dado los supuestos que se tomaron los valores desde el limites superior del bigote hasta el 30 ya no serían tomados como valores atípicos, por lo tanto se dejan alí.
+```{r}
+
+# Variables y colores
+siniestros <- c("Siniestros1", "Siniestros2", "Siniestros3", "Siniestros4", "Siniestros5", "Siniestros6")
+colores <- c("red", "blue", "green", "purple", "orange", "brown")
+
+# Crear una lista para almacenar los gráficos
+graficos <- list()
+
+# Generar los gráficos de bigotes
+for (i in seq_along(siniestros)) {
+  graficos[[i]] <- ggplot(df, aes_string(y = siniestros[i])) +
+    geom_boxplot(fill = colores[i], color = "black", outlier.color = "black", outlier.size = 1.5) +
+    labs(title = paste("Boxplot de", siniestros[i]), y = siniestros[i]) +
+    theme_minimal()
+}
+
+# Combinar los gráficos en un solo objeto usando gridExtra
+grafico_combinado <- grid.arrange(grobs = graficos, ncol = 2, heights = rep(1, length(graficos) / 2))
+
+```
+
+# ANALIZANDO LOS VALORES PERDIDOS (NA)
+Se creará un cuadro en el que figura para cada variable su valor nulos, na o perdido con el objetivo de imputarlo.
+
+```{r}
+# Crear una tabla para contar los valores NA por variable
+na_count <- data.frame(Variable = names(df), NA_Count = rep(0, length(names(df))))
+# Contar los valores NA por variable utilizando un for
+for (i in 1:ncol(df)) {
+  na_count$NA_Count[i] <- sum(is.na(df[[i]]))
+}
+# Mostrar la tabla con los valores NA por variable
+print(na_count)
+
+```
+La tabla muestra que Antiguedad máxima y Nivel de ingresos tienen valores NA, vacios que debemos imputar, se tomará encuentra que la variable Antiguedad máxima es numérica y Nivel de Ingresos es Cualitativa ordinal.
+
+# IMPUTANDO LA VARIABLE SINIESTRO EN FUNCION DE LA MODA
+
+```{r}
+table(df$Estado_Siniestro)
+df$Estado_Siniestro[!(df$Estado_Siniestro %in% c("si", "no"))] <- "no"
+df$Estado_Siniestro <- droplevels(df$Estado_Siniestro)
+table(df$Estado_Siniestro)
+```
+
+# IMPUTACIÓN DE LA VARIABLE NIVEL DE INGRESOS POR LA MODA
+Dado que la variable nivel de ingresos es cualitativa se imputará en función de la moda.
+
+```{r}
+
+# Calcular la moda (el valor más frecuente)
+calcular_moda <-function(x){as.numeric(names(sort(table(x),
+                      decreasing =TRUE)[1]))}
+moda_ingresos <- calcular_moda(df$Nivel_Ingresos)
+print(moda_ingresos)
+# Imputar valores NA con la moda
+df$Nivel_Ingresos[is.na(df$Nivel_Ingresos)] <- moda_ingresos
+# Verificar si hay NA restantes
+sum(is.na(df$Nivel_Ingresos))
+# Resumen de la variable
+summary(df$Nivel_Ingresos)
+```
+# IMPUTACIÓN DE LOS VALORES NA DE MESES DE ANTIGUEDAD 
+Dado que la variable antiguedad esta en meses se imputará los valores perdidos en función a mediana.
+
+```{r}
+
+# Imputar valores NA con la mediana
+df$Antigüedad_Maxima <- ifelse(is.na(df$Antigüedad_Maxima),
+                                median(df$Antigüedad_Maxima, na.rm = TRUE),
+                                df$Antigüedad_Maxima)
+# Verificar si quedan valores NA
+sum(is.na(df$Antigüedad_Maxima))
+
+# Revisar la nueva distribución
+histograma<-hist(df$Antigüedad_Maxima, breaks = 30, main = "Distribución después de imputación", col = "lightgreen")
+histograma
+```
+
+# GRAFICO 1: NIVEL DE INGRESOS
+Se realizará un gráfico de barra de la variable nivel de ingresos.
+
+```{r}
+
+# Calcular frecuencias
+frecuencias <- df %>%
+  group_by(Nivel_Ingresos) %>%
+  summarise(Frecuencia = n()) %>%
+  mutate(Porcentaje = Frecuencia / sum(Frecuencia) * 100)
+
+# Crear gráfico de barras con porcentajes
+grafico_barras <- ggplot(frecuencias, aes(x = Nivel_Ingresos, y = Frecuencia, fill = Nivel_Ingresos)) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = c("red", "blue", "green", "yellow", "orange", "purple")) +  # Colores personalizados
+  geom_text(aes(label = paste0(round(Porcentaje, 1), "%")), vjust = -0.5) +  # Agregar etiquetas con porcentajes
+  labs(title = "Gráfico de Barras - Nivel de Ingresos", x = "Nivel de Ingresos", y = "Frecuencia") +
+  theme_minimal()
+# Mostrar gráfico de barras
+print(grafico_barras)
+
+# Crear gráfico circular con porcentajes
+grafico_circular <- ggplot(frecuencias, aes(x = "", y = Frecuencia, fill = factor(Nivel_Ingresos))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("red", "blue", "green", "yellow", "orange", "purple")) +  # Colores personalizados
+  geom_text(aes(label = paste0(round(Porcentaje, 1), "%")), position = position_stack(vjust = 0.5)) +  # Etiquetas con porcentajes
+  labs(title = "Gráfico Circular - Nivel de Ingresos", fill = "Nivel de Ingresos") +
+  theme_void()
+# Mostrar gráfico circular
+print(grafico_circular)
+# Unir ambos gráficos en un solo objeto (dos gráficos en una fila)
+grid.arrange(grafico_barras, grafico_circular, ncol = 2)
+
+```
+Del gráfico anterior se puede observar que la personas de mas bajos ingresos representan el 33%, el más bajo es el de más altos ingresos.
+
+# GRÁFICA 2: ANTIGUEDAD MAXIMA
+Se realiza el gráfico de histograma y de box plot de la variable antiguedad máxima
+```{r}
+
+# Histograma
+histo<- ggplot(df, aes(x = Antigüedad_Maxima)) + 
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") + 
+  theme_minimal() +
+  ggtitle("Antiguedad_Maxima")
+histo
+
+```
+# REALIZANDO ALGUNAS TABLAS ESTADÍSTICAS 
+Se contruiran algunas tablas de contingencia para describir lo que sucede en la data de Siniestro,los que tienen mayor nivel de ingresos tienen un 100% de no ocurrencia de siniestro,se observa que segun va cayendo el nivel de ingreso aumenta el porcetaje de siniestro.
+```{r}
+# Tabla de contingencia entre Nivel_Ingresos y Estado_Siniestro en porcentajes (por filas)
+prop.table(table(df$Nivel_Ingresos, df$Estado_Siniestro), margin = 1) * 100
+
+```
+```{r}
+# Tabla de contingencia entre Puntaje_Morosidad1 y Estado_Siniestro en porcentajes (por filas)
+prop.table(table(df$Puntaje_Morosidad1, df$Estado_Siniestro), margin = 1) * 100
+```
+# PRUEBA DE NORMALIDAD DE LA VARIABLE AÑOS DE ANTIGUEDAD
+Se realiza esta prueba dado que la variable tiene muchas observaciones y que tiene datos repetidos dada la imputacion realizada.
+
+Respecto al resultado, l p-value muy pequeño (< 0.05) rechaza la hipótesis nula de que los datos provienen de una distribución normal.Por lo tanto, los datos no son normales
+
+```{r}
+# Prueba de Anderson-Darling
+library(nortest)
+ad_test1 <- ad.test(df$Saldo_Pendiente)
+print("Prueba de Anderson-Darling")
+print(ad_test1)
+
+```
+
+# PRUEBA DE NORMALIDAD  DE ANTIGUEDAD MÁXIMA
+Se realiza esta prueba dado que la variable tiene muchas observaciones y que tiene datos repetidos dada la imputacion realizada.
+Respecto a los resultados,Dado que el p-value es extremadamente bajo (< 0.05), rechazamos la hipótesis nula de que la variable Antigüedad_Maxima sigue una distribución normal.
+Esto significa que Antigüedad_Maxima no es normal.
+```{r}
+# Prueba Anderson-Darling
+ad_test2 <- ad.test(df$Antigüedad_Maxima)
+print(ad_test2)
+```
+# PRUEBAS NO PARAMÉTRICAS KRUSKAL- WALLIS 
+Objetivo: Comparar las medianas de más de dos grupos independientes (en este caso, tus 6 categorías de Nivel de Ingreso).
+Es una alternativa no paramétrica al ANOVA cuando no se cumple la normalidad.
+
+Respcto a resultado observado, dado que el p-valor es menor a 0.05 la prueba muestra que existen diferencias significativas entre ciertos grupos (por ejemplo, entre los grupos 0 y 1, 0 y 3, etc.), mientras que en otros pares de grupos las diferencias no son significativas (por ejemplo, entre 1 y 2, 4 y 5).
+
+Esto sugiere que las distribuciones de x son diferentes entre algunos de los grupos, pero no entre otro
+
+
+```{r}
+
+library(dunn.test)
+
+# Prueba post hoc de Dunn con corrección de Bonferroni
+dunn_results <- dunn.test(df$Saldo_Pendiente_Seg, df$Nivel_Ingreso, method = "bonferroni")
+print(dunn_results)
+
+```
+
+# PRUEBA DE TENDENCIA DE JHONCKHERER - TERSPSTRA TEST
+Dado que los niveles de Nivel_Ingreso tienen un orden lógico (por ejemplo, de menor ingreso a mayor ingreso), la prueba Jonckheere-Terpstra evalúa si existe una tendencia monótona (creciente o decreciente) en Saldo_Pendiente_Seg
+
+Respecto al resultado, dado que p valor es muy bajo y crecano a cero, es probable que a medida que aumentan los niveles de ingresos (Nivel_Ingresos), haya una tendencia creciente o decreciente en el Saldo_Pendiente_Seg.
+
+```{r}
+library(DescTools)
+JonckheereTerpstraTest(Saldo_Pendiente_Seg ~ Nivel_Ingresos, data = df)
+
+```
+# CREACIÓN DE NUEVAS VARIABLES
+Sería más provechoso crear una sola variable del nivel de ingresos para simplificarlo y luego realizar pruebas de tablas de contingencia y pruebas entre variables cualitativas mas precisas.
+
+```{r}
+df <- df %>%
+    mutate(Nivel_Ingresos_Agrupado = case_when(
+        Nivel_Ingresos %in% c("0", "1") ~ "Bajo",
+        Nivel_Ingresos %in% c("2", "3") ~ "Medio",
+        Nivel_Ingresos %in% c("4", "5") ~ "Alto"
+    ))
+table(df$Nivel_Ingresos_Agrupado)
+
+```
+# PRUEBA DE INDEPENDENCIA DE CHI CUADRADO
+ El test Chi-cuadrado de Pearson que evalúa la relación de independencia entre las variables categóricas. En otras palabras, está probando en este caso si el nivel de ingresos tiene alguna relación con la probabilidad de que ocurra un siniestro.
+De los resultados dados, con un valor p tan pequeño (1.425e-10), rechazamos la hipótesis nula y concluimos que hay una relación estadísticamente significativa entre el nivel de ingresos de los clientes y la probabilidad de que ocurran siniestros.
+```{r}
+# Prueba de chi-cuadrado para Nivel_Ingresos vs Estado_Siniestro
+chi_square_nivel_ingresos <- chisq.test(table(df$Nivel_Ingresos_Agrupado, df$Estado_Siniestro))
+print(chi_square_nivel_ingresos)
+
+```
+# PRUEBA DE LA U DE MAN-WHITNEY - WILCOOXN  
+Dado que mi variable es de distribución no normal, se necesita una pruba no paramétrica para saber la relación entre estado de siniestro y saldo pendiente total.
+Dado el resultado obtenido, qel valor p (0.0001204) es mucho menor que 0.05, rechazamos la hipótesis nula. Esto indica que hay una diferencia significativa entre las medianas de Saldo_Pendiente entre los dos grupos de Estado_Siniestro ("sí" y "no").
+
+```{r}
+# Realizar la prueba de Mann-Whitney
+wilcox.test(Saldo_Pendiente ~ Estado_Siniestro, data = df)
+```
+# PRUEBA DE KRUSKAL WALLIS
+Necesitamos saber si el Estado_Siniestro influye en la distribución de la variable Saldo_Pendiente, para ello realizaremos esta prueba no paramétrica.
+
+Respecto a los resultados,dado que el valor p (0.0001204) es mucho menor que el umbral común de significancia 0.05, rechazamos la hipótesis nula. Esto sugiere que hay una diferencia significativa en las distribuciones de la variable Saldo_Pendiente entre los grupos de Estado_Siniestro (es decir, entre los clientes con y sin siniestros).Si hay una influencia, dado las diferencias.
+```{r}
+# Realizar la prueba de Kruskal-Wallis
+kruskal.test(Saldo_Pendiente ~ Estado_Siniestro, data = df)
+```
+# CONSIDERACIONES FINALES:
+Las pruebas realizadas son pruebas pre-eliminares,para llegar a mejores conclusiones entre las relaciones entre las variables dadas en la base de datos se requieren un modelo Logit para determinar la Probabilidad de siniestro segun las otras variables.
+
+
